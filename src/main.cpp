@@ -1,6 +1,10 @@
 #include <Arduino.h>
 #include <Servo.h>
 #include "ESP8266WiFi.h"
+extern "C" {
+  #include "user_interface.h"
+  #include "wpa2_enterprise.h"
+}
 #include <WebSocketClient.h>
 
 #include <Arduino.h>
@@ -22,9 +26,14 @@ void wifiCheck(){
     if(WiFi.status() != WL_CONNECTED){
         Serial.print("Connecting to WiFi...");
     }
+    int counter = 0;
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
         Serial.print(".");
+        counter++;
+        if(counter>=60){ //after 30 seconds timeout - reset board
+            ESP.restart();
+        }
     }
     Serial.println("");
 }
@@ -57,7 +66,18 @@ void setup() {
     Serial.begin(9600);
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, HIGH);
-    WiFi.begin(AP_SSID, AP_PASSWORD);
+    //Setup wifi
+    wifi_set_opmode(0x01);
+    struct station_config wifi_config;
+    memset(&wifi_config, 0, sizeof(wifi_config));
+    strcpy((char*)wifi_config.ssid, AP_SSID);
+    wifi_station_set_config(&wifi_config);
+    wifi_station_clear_cert_key();
+    wifi_station_clear_enterprise_ca_cert();
+    wifi_station_set_wpa2_enterprise_auth(1);
+    wifi_station_set_enterprise_username((uint8*)EAP_IDENTITY, strlen(EAP_IDENTITY));
+    wifi_station_set_enterprise_password((uint8*)EAP_PASSWORD, strlen(EAP_PASSWORD));
+    wifi_station_connect();
     websocketLoad();
     digitalWrite(LED_PIN, LOW);
 }
