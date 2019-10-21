@@ -31,7 +31,7 @@ void wifiCheck(){
         delay(500);
         Serial.print(".");
         counter++;
-        if(counter>=60){ //after 30 seconds timeout - reset board
+        if(counter>=60){ //after 60 seconds timeout - reset board
             ESP.restart();
         }
     }
@@ -45,7 +45,7 @@ void websocketLoad() {
         Serial.println("Connection failed.");
     }
     
-    webSocketClient.path = "/";
+    webSocketClient.path = (char*)"/";
     webSocketClient.host = strdup(WEBSOCKET_URL);
     if (webSocketClient.handshake(client)) {
         Serial.println("Handshake successful");
@@ -110,27 +110,29 @@ void loop() {
     if (client.connected()) {
         webSocketClient.getData(data);
         if (data.length() > 0) {
-            Serial.print("Received data: ");
-            Serial.println(data);
-            std::vector<String> split_string = splitStringToVector(data.c_str(), ':');
-            String msgType = split_string[0];
-            String deviceName = split_string[1];
-            String fname = split_string[2];
-            String command = split_string[3];
-            if(deviceName == "window" && fname == "power"){
-                if(command == "off"){
-                    closeWindow();
+            if (data == "ping") {
+                webSocketClient.sendData("pong");
+            } else {
+                std::vector<String> split_string = splitStringToVector(data.c_str(), ':');
+                String msgType = split_string[0];
+                String deviceName = split_string[1];
+                String fname = split_string[2];
+                String command = split_string[3];
+                if(deviceName == "window" && fname == "power"){
+                    if(command == "off"){
+                        closeWindow();
+                    }
+                    if(command == "on"){
+                        openWindow();
+                    }
                 }
-                if(command == "on"){
-                    openWindow();
-                }
-            }
-            if(deviceName == "window" && fname == "color"){
-                if(command == "dim"){
-                    closeWindow();
-                }
-                if(command == "bright"){
-                    openWindow();
+                if(deviceName == "window" && fname == "color"){
+                    if(command == "dim"){
+                        closeWindow();
+                    }
+                    if(command == "bright"){
+                        openWindow();
+                    }
                 }
             }
         }
