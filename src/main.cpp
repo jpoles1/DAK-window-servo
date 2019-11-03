@@ -1,21 +1,16 @@
 #include <Arduino.h>
 #include <Servo.h>
-#include "ESP8266WiFi.h"
-extern "C" {
-  #include "user_interface.h"
-  #include "wpa2_enterprise.h"
-}
+#include <WiFi.h>
+#include "esp_wpa2.h"
 #include <ArduinoWebsockets.h>
 using namespace websockets;
-
-#include <Arduino.h>
 
 //Private Config
 #include "config.h"
 
 //Pins
-#define SERVO_PIN D0
-#define LED_PIN D3
+#define SERVO_PIN 13
+#define LED_PIN 4
 
 //Global variables
 WebsocketsClient wsClient;
@@ -40,20 +35,20 @@ void closeWindow(){
     turnServo(0, turnTime);
 }
 
+//Wifi Util Functions
 void wifiCheck(){
     if(WiFi.status() != WL_CONNECTED){
-        Serial.print("Connecting to WiFi...");
+        Serial.println("Connecting to WiFi...");
     }
     int counter = 0;
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
         Serial.print(".");
         counter++;
-        if(counter>=120){ //after 60 seconds timeout - reset board
+        if(counter>=60){ //after 30 seconds timeout - reset board
             ESP.restart();
         }
     }
-    Serial.println("Connected to wifif");
 }
 
 std::vector<String> splitStringToVector(String msg, char delim){
@@ -112,18 +107,21 @@ void setup() {
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, HIGH);
     //Setup wifi
-    wifi_set_opmode(0x01);
-    struct station_config wifi_config;
-    memset(&wifi_config, 0, sizeof(wifi_config));
-    strcpy((char*)wifi_config.ssid, AP_SSID);
-    wifi_station_set_config(&wifi_config);
-    wifi_station_clear_cert_key();
-    wifi_station_clear_enterprise_ca_cert();
-    wifi_station_set_wpa2_enterprise_auth(1);
-    wifi_station_set_enterprise_username((uint8*)EAP_IDENTITY, strlen(EAP_IDENTITY));
-    wifi_station_set_enterprise_password((uint8*)EAP_PASSWORD, strlen(EAP_PASSWORD));
-    wifi_station_connect();
-    //websocketLoad();
+        //Setup wifi
+	delay(10);
+    //uint8_t new_mac[8] = {0x39,0xAE,0xA4,0x16,0x1F,0x08};
+    //esp_base_mac_addr_set(new_mac);
+    WiFi.disconnect(true);  //disconnect form wifi to set new wifi connection
+    WiFi.mode(WIFI_STA); //init wifi mode
+    esp_wifi_sta_wpa2_ent_set_identity((uint8_t *)EAP_IDENTITY, strlen(EAP_IDENTITY)); //provide identity
+    esp_wifi_sta_wpa2_ent_set_username((uint8_t *)EAP_IDENTITY, strlen(EAP_IDENTITY)); //provide username --> identity and username is same
+    esp_wifi_sta_wpa2_ent_set_password((uint8_t *)EAP_PASSWORD, strlen(EAP_PASSWORD)); //provide password
+    esp_wpa2_config_t config = WPA2_CONFIG_INIT_DEFAULT(); //set config settings to default
+    esp_wifi_sta_wpa2_ent_enable(&config); //set config settings to enable function
+    WiFi.begin(AP_SSID);
+    //WiFi.setHostname("ESPDAK");
+    websocketLoad();
+
     digitalWrite(LED_PIN, LOW);
 }
 
