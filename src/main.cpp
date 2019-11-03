@@ -5,7 +5,8 @@ extern "C" {
   #include "user_interface.h"
   #include "wpa2_enterprise.h"
 }
-#include <WebSocketClient.h>
+#include <ArduinoWebsockets.h>
+using namespace websockets;
 
 #include <Arduino.h>
 
@@ -17,10 +18,27 @@ extern "C" {
 #define LED_PIN D3
 
 //Global variables
-WebSocketClient webSocketClient;
-WiFiClient client;
+WebsocketsClient wsClient;
 Servo contServo;
 const int turnTime = 3000;
+
+void turnServo(int speed, int duration){
+    contServo.attach(SERVO_PIN);
+    contServo.write(speed);
+    delay(duration);
+    contServo.write(90);
+    contServo.detach();
+}
+
+void openWindow(){
+    Serial.println("Opening Window!");
+    turnServo(180, turnTime);
+}
+
+void closeWindow(){
+    Serial.println("Closing Window!");
+    turnServo(0, turnTime);
+}
 
 void wifiCheck(){
     if(WiFi.status() != WL_CONNECTED){
@@ -31,55 +49,11 @@ void wifiCheck(){
         delay(500);
         Serial.print(".");
         counter++;
-        if(counter>=60){ //after 60 seconds timeout - reset board
+        if(counter>=120){ //after 60 seconds timeout - reset board
             ESP.restart();
         }
     }
-    Serial.println("");
-}
-void websocketLoad() {
-    wifiCheck();
-    if (client.connect(WEBSOCKET_URL, 80)) {
-        Serial.println("Connected");
-    } else {
-        Serial.println("Connection failed.");
-    }
-    
-    webSocketClient.path = (char*)"/";
-    webSocketClient.host = strdup(WEBSOCKET_URL);
-    if (webSocketClient.handshake(client)) {
-        Serial.println("Handshake successful");
-    } else {
-        Serial.println("Handshake failed.");
-    }
-}
-
-void turnServo(int speed, int duration){
-    contServo.attach(SERVO_PIN);
-    contServo.write(speed);
-    delay(duration);
-    contServo.write(90);
-    contServo.detach();
-}
-
-void setup() {
-    Serial.begin(9600);
-    pinMode(LED_PIN, OUTPUT);
-    digitalWrite(LED_PIN, HIGH);
-    //Setup wifi
-    wifi_set_opmode(0x01);
-    struct station_config wifi_config;
-    memset(&wifi_config, 0, sizeof(wifi_config));
-    strcpy((char*)wifi_config.ssid, AP_SSID);
-    wifi_station_set_config(&wifi_config);
-    wifi_station_clear_cert_key();
-    wifi_station_clear_enterprise_ca_cert();
-    wifi_station_set_wpa2_enterprise_auth(1);
-    wifi_station_set_enterprise_username((uint8*)EAP_IDENTITY, strlen(EAP_IDENTITY));
-    wifi_station_set_enterprise_password((uint8*)EAP_PASSWORD, strlen(EAP_PASSWORD));
-    wifi_station_connect();
-    websocketLoad();
-    digitalWrite(LED_PIN, LOW);
+    Serial.println("Connected to wifif");
 }
 
 std::vector<String> splitStringToVector(String msg, char delim){
@@ -95,50 +69,75 @@ std::vector<String> splitStringToVector(String msg, char delim){
   return subStrings;
 }
 
-void openWindow(){
-    Serial.println("Opening Window!");
-    turnServo(180, turnTime);
+void onMessage(WebsocketsMessage msg) {
+    if (msg.data() == "ping") {
+        //webSocketClient.sendData("pong");
+    } else {
+        std::vector<String> split_string = splitStringToVector(msg.data().c_str(), ':');
+        String msgType = split_string[0];
+        String deviceName = split_string[1];
+        String fname = split_string[2];
+        String command = split_string[3];
+        if(deviceName == "window" && fname == "power"){
+            if(command == "off"){
+                closeWindow();
+            }
+            if(command == "on"){
+                openWindow();
+            }
+        }
+        if(deviceName == "window" && fname == "color"){
+            if(command == "dim"){
+                closeWindow();
+            }
+            if(command == "bright"){
+                openWindow();
+            }
+        }
+    }
+}
+void websocketLoad() {
+    wifiCheck();
+    String wsURL = String("/sync?room=") + SERVER_ROOMNAME + String("&key=") + SERVER_KEY;
+    if (wsClient.connect(WEBSOCKET_URL, 80, wsURL)) {
+        Serial.println("WS connected!");
+    } else {
+        Serial.println("WS connection failed!");
+    }
+    wsClient.onMessage(onMessage);
 }
 
-void closeWindow(){
-    Serial.println("Closing Window!");
-    turnServo(0, turnTime);
+void setup() {
+    Serial.begin(115200);
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, HIGH);
+    //Setup wifi
+    wifi_set_opmode(0x01);
+    struct station_config wifi_config;
+    memset(&wifi_config, 0, sizeof(wifi_config));
+    strcpy((char*)wifi_config.ssid, AP_SSID);
+    wifi_station_set_config(&wifi_config);
+    wifi_station_clear_cert_key();
+    wifi_station_clear_enterprise_ca_cert();
+    wifi_station_set_wpa2_enterprise_auth(1);
+    wifi_station_set_enterprise_username((uint8*)EAP_IDENTITY, strlen(EAP_IDENTITY));
+    wifi_station_set_enterprise_password((uint8*)EAP_PASSWORD, strlen(EAP_PASSWORD));
+    wifi_station_connect();
+    //websocketLoad();
+    digitalWrite(LED_PIN, LOW);
 }
 
 String data;
 void loop() {
-    if (client.connected()) {
-        webSocketClient.getData(data);
-        if (data.length() > 0) {
-            if (data == "ping") {
-                webSocketClient.sendData("pong");
-            } else {
-                std::vector<String> split_string = splitStringToVector(data.c_str(), ':');
-                String msgType = split_string[0];
-                String deviceName = split_string[1];
-                String fname = split_string[2];
-                String command = split_string[3];
-                if(deviceName == "window" && fname == "power"){
-                    if(command == "off"){
-                        closeWindow();
-                    }
-                    if(command == "on"){
-                        openWindow();
-                    }
-                }
-                if(deviceName == "window" && fname == "color"){
-                    if(command == "dim"){
-                        closeWindow();
-                    }
-                    if(command == "bright"){
-                        openWindow();
-                    }
-                }
-            }
+    if (WiFi.status() == WL_CONNECTED) {
+        if (wsClient.available()) {
+            wsClient.poll();
+        } else {
+            websocketLoad();
         }
-        data = "";
     } else {
-        Serial.println("Client disconnected.");
-        websocketLoad();
+        Serial.println("WiFi disconnected!");
+        wifiCheck();
     }
+    delay(500);
 }
